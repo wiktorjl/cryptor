@@ -251,33 +251,33 @@ int encrypt_file_to_header(const char *input_filename,
     return 0;
 }
 
-// int main(int argc, char *argv[]) {
+#ifdef CRYPTOR_STANDALONE
+int main(int argc, char *argv[]) {
 
-//     /*  1. Get a payload binary path from the command line
-//         2. Encrypt the payload
-//         3. Generate a header file
-//         4. Output help if arguments missing
-//         5. Validate argument (file name) is valid, exists, and is not empty */
-//     if (argc < 4) {
-//         fprintf(stderr, "Usage: %s <input_file> <output_header> <array_name> [<passphrase>]\n", argv[0]);
-//         return 1;
-//     }
-//     const char *input_file = argv[1];
-//     const char *output_header = argv[2];
-//     const char *array_name = argv[3];
-//     const char *passphrase = (argc > 4) ? argv[4] : SECRET_PASSPHRASE;
-//     if (strlen(input_file) == 0 || strlen(output_header) == 0 || strlen(array_name) == 0) {
-//         fprintf(stderr, "Error: Input file, output header, and array name cannot be empty.\n");
-//         return 1;
-//     }
-//     // 6. Encrypt the file and generate the header
-//     int result = encrypt_file_to_header(input_file, output_header, array_name, passphrase);
-//     if (result != 0) {
-//         fprintf(stderr, "Error: Failed to encrypt file and generate header.\n");
-//         return result;
-//     }
-//     // 7. Print success message
-//     printf("Successfully encrypted '%s' to '%s' with array name '%s'.\n", input_file, output_header, array_name);
-//     printf("Use the generated header in your C/C++ code to access the encrypted data.\n");
-//     return 0;
-// }
+    /*  1. Get a payload binary path from the command line
+        2. Encrypt the payload
+        3. Generate a header file
+        4. Output help if arguments missing
+        5. Validate argument (file name) is valid, exists, and is not empty */
+    if (argc < 4) {
+        fprintf(stderr, "Usage: %s <input_file> <output_header> <array_name> [<passphrase>]\n", argv[0]);
+        return 1;
+    }
+    const char *input_file = argv[1];
+    const char *output_header = argv[2];
+    const char *array_name = argv[3];
+    const char *passphrase = (argc > 4) ? argv[4] : SECRET_PASSPHRASE;
+    if (strlen(input_file) == 0 || strlen(output_header) == 0 || strlen(array_name) == 0) {
+        fprintf(stderr, "Error: Input file, output header, and array name cannot be empty.\n");
+        return 1;
+    }
+    int result = encrypt_file_to_header(input_file, output_header, array_name, passphrase);
+    if (result != 0) {
+        fprintf(stderr, "Error: Failed to encrypt file and generate header.\n");
+        return result;
+    }
+    printf("Successfully encrypted '%s' to '%s' with array name '%s'.\n", input_file, output_header, array_name);
+    printf("Use the generated header in your C/C++ code to access the encrypted data.\n");
+    return 0;
+}
+#endif // CRYPTOR_STANDALONE

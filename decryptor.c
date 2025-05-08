@@ -86,18 +86,6 @@ int main(int argc, char *argv_main[]) {
 
     // Decrypt the copy
     decrypt_data(decrypted_data, enc_payload_len, decryption_key_string);
-    // xor_decrypt(decrypted_data, enc_payload_len, decryption_key_string);
-
-    // ---- DEBUG: Write decrypted data to a file ----
-    FILE *debug_out = fopen("decrypted_output.bin", "wb");
-    if (debug_out) {
-        fwrite(decrypted_data, 1, enc_payload_len, debug_out);
-        fclose(debug_out);
-        fprintf(stderr, "DEBUG: Wrote decrypted payload to decrypted_output.bin\n");
-    } else {
-        perror("DEBUG: Failed to open decrypted_output.bin for writing");
-    }
-    // ---- END DEBUG ----
 
     fd = create_memory_fd("my_ram_exe", MFD_CLOEXEC);
     if (fd == -1) {
